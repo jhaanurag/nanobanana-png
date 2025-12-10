@@ -28,3 +28,6 @@ build/
 
 # python local env
 local.env
+
+# Environment variables
+.env
