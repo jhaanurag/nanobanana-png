@@ -1,12 +1,18 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 import os
+from dotenv import load_dotenv
+
+import google.generativeai as genai
+
+# Load environment variables
+load_dotenv()
+# No client instantiated here — use the older SDK pattern (genai.configure)
 import io
 import base64
 import json
 import traceback
 from PIL import Image
-import google.generativeai as genai
 
 app = FastAPI()
 
@@ -93,12 +99,9 @@ async def generate_image(request: Request):
     if not api_key:
         raise HTTPException(status_code=500, detail='GEMINI_API_KEY not configured')
 
-    # configure the official SDK client
-    try:
-        genai.configure(api_key=api_key)
-    except Exception:
-        # some versions expose a different function
-        pass
+    # The SDK client is instantiated once at module import. We'll ensure the API key is present.
+    # If you prefer to use per-request client instantiation, you can uncomment the following:
+    # client = genai.Client(api_key=api_key)
 
     system_instruction = (
         'Create an image containing the subject described in the prompt. Use a solid green screen background (pure green, hex #00FF00) so the background can be removed easily. ' 
@@ -107,40 +110,42 @@ async def generate_image(request: Request):
     combined_prompt = f"{system_instruction}\n\nPrompt: {prompt}"
 
     try:
-        # Try a couple of common SDK call signatures to locate the image bytes
-        resp = None
-        image_b64 = None
+        # Configure the older google.generativeai SDK with the API key
         try:
-            # common pattern: genai.images.generate
-            if hasattr(genai, 'images') and hasattr(genai.images, 'generate'):
-                resp = genai.images.generate(model='gemini-2.5-flash-image', prompt=combined_prompt)
-            elif hasattr(genai, 'generate_image'):
-                resp = genai.generate_image(model='gemini-2.5-flash-image', prompt=combined_prompt)
-            elif hasattr(genai, 'Image') and hasattr(genai.Image, 'generate'):
-                resp = genai.Image.generate(model='gemini-2.5-flash-image', prompt=combined_prompt)
-            else:
-                # try top-level generate call
-                resp = genai.generate(model='gemini-2.5-flash-image', prompt=combined_prompt)
+            genai.configure(api_key=api_key)
         except Exception:
-            # try fallback: some SDK versions use a different call signature
-            resp = genai.generate_image(model='gemini-2.5-flash-image', prompt=combined_prompt)
+            # If configure doesn't exist or fails, we'll still try to proceed
+            pass
 
-        # extract base64 from response
-        image_b64 = _extract_b64(resp)
-        if not image_b64:
-            # try converting to JSON
-            try:
-                resp_json = json.loads(json.dumps(resp, default=lambda o: getattr(o, '__dict__', str(o))))
-                image_b64 = _extract_b64(resp_json)
-            except Exception:
-                pass
+        # Use the older SDK pattern: create a GenerativeModel and call generate_content
+        model = genai.GenerativeModel('gemini-2.5-flash-image')
+        response = model.generate_content([combined_prompt])
 
-        if not image_b64:
-            # If we don't have b64, raise error with raw repr of resp
-            raise ValueError('Could not locate base64 image in SDK response')
+        image_bytes = None
+        # The old SDK returns response.candidates[0].content.parts[0].inline_data.data
+        try:
+            candidate = response.candidates[0]
+            content = getattr(candidate, 'content', None)
+            parts = getattr(content, 'parts', []) or []
+            if parts:
+                inline = getattr(parts[0], 'inline_data', None)
+                if inline is not None and getattr(inline, 'data', None):
+                    data = inline.data
+                    if isinstance(data, (bytes, bytearray)):
+                        image_bytes = bytes(data)
+                    elif isinstance(data, str):
+                        image_bytes = base64.b64decode(data)
+        except Exception:
+            pass
 
-        # decode bytes
-        image_bytes = base64.b64decode(image_b64)
+        # fallback: try recursively extracting base64 from the response structure
+        if not image_bytes:
+            image_b64 = _extract_b64(response)
+            if image_b64:
+                image_bytes = base64.b64decode(image_b64)
+
+        if not image_bytes:
+            raise ValueError('Could not locate image data in SDK response')
     except Exception as exc:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f'Image generation failed: {exc}')
