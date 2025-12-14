@@ -3,16 +3,21 @@ from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 import os
 from dotenv import load_dotenv
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 # Load environment variables
 load_dotenv()
-# No client instantiated here — use the older SDK pattern (genai.configure)
+client = None
+try:
+    client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
+except Exception:
+    client = None
 import io
 import base64
 import json
 import traceback
-from PIL import Image
+from PIL import Image, ImageDraw
 
 app = FastAPI()
 
@@ -99,6 +104,35 @@ async def generate_image(request: Request):
     if not api_key:
         raise HTTPException(status_code=500, detail='GEMINI_API_KEY not configured')
 
+    # If developer wants a mock generation mode (no real API or quota), use 'mock' key
+    if api_key == 'mock':
+        def _mock_generate(prompt_text: str) -> bytes:
+            # Create a simple PNG with a green background and a yellow banana-like shape
+            w, h = 640, 480
+            img = Image.new('RGBA', (w, h), (0, 255, 0, 255))
+            draw = ImageDraw.Draw(img)
+            # draw a banana-like ellipse
+            draw.ellipse([(w*0.25, h*0.35), (w*0.75, h*0.65)], fill=(255, 225, 25, 255))
+            # add a little black outline
+            draw.arc([(w*0.25, h*0.35), (w*0.75, h*0.65)], start=20, end=160, fill=(0,0,0), width=3)
+            # add text of prompt for visibility
+            try:
+                draw.text((10, 10), prompt_text[:100], fill=(0,0,0))
+            except Exception:
+                pass
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            buf.seek(0)
+            return buf.read()
+
+        try:
+            mock_bytes = _mock_generate(prompt)
+            out_buf = remove_green_screen_from_bytes(mock_bytes)
+            return StreamingResponse(out_buf, media_type='image/png')
+        except Exception as exc:
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f'Mock image generation failed: {exc}')
+
     # The SDK client is instantiated once at module import. We'll ensure the API key is present.
     # If you prefer to use per-request client instantiation, you can uncomment the following:
     # client = genai.Client(api_key=api_key)
@@ -109,34 +143,56 @@ async def generate_image(request: Request):
     )
     combined_prompt = f"{system_instruction}\n\nPrompt: {prompt}"
 
+    # use the shared `client` declared at module level; we need to declare it as global
+    global client
     try:
-        # Configure the older google.generativeai SDK with the API key
-        try:
-            genai.configure(api_key=api_key)
-        except Exception:
-            # If configure doesn't exist or fails, we'll still try to proceed
-            pass
+        # Initialize the client lazily if not already available
+        if client is None:
+            try:
+                client = genai.Client(api_key=api_key)
+            except Exception:
+                # genai client initialization failed; we'll try to proceed and let the SDK raise a helpful error
+                client = None
+        # Configure new GenAI SDK client if not created earlier
+        if client is None:
+            try:
+                client = genai.Client(api_key=api_key)
+            except Exception:
+                pass
 
-        # Use the older SDK pattern: create a GenerativeModel and call generate_content
-        model = genai.GenerativeModel('gemini-2.5-flash-image')
-        response = model.generate_content([combined_prompt])
+        if client is None:
+            raise ValueError('GenAI client not available; no `google-genai` installed or client creation failed')
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-image',
+            contents=[combined_prompt],
+        )
 
         image_bytes = None
-        # The old SDK returns response.candidates[0].content.parts[0].inline_data.data
-        try:
-            candidate = response.candidates[0]
-            content = getattr(candidate, 'content', None)
-            parts = getattr(content, 'parts', []) or []
-            if parts:
-                inline = getattr(parts[0], 'inline_data', None)
-                if inline is not None and getattr(inline, 'data', None):
-                    data = inline.data
+        # Iterate over response.parts: prefer inline image via `as_image()` if available
+        for part in getattr(response, 'parts', []) or []:
+            # If part has inline_data, it can be rendered as an image via `as_image()` (SDK convenience)
+            try:
+                if getattr(part, 'inline_data', None) is not None and hasattr(part, 'as_image'):
+                    img = part.as_image()
+                    # Convert PIL image to bytes for chroma key removal
+                    buf = io.BytesIO()
+                    img.save(buf, format='PNG')
+                    buf.seek(0)
+                    image_bytes = buf.read()
+                    break
+            except Exception:
+                # fallback to reading data directly
+                try:
+                    data = getattr(part.inline_data, 'data', None)
                     if isinstance(data, (bytes, bytearray)):
                         image_bytes = bytes(data)
+                        break
                     elif isinstance(data, str):
                         image_bytes = base64.b64decode(data)
-        except Exception:
-            pass
+                        break
+                except Exception:
+                    pass
 
         # fallback: try recursively extracting base64 from the response structure
         if not image_bytes:
