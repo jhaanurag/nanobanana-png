@@ -4,7 +4,7 @@ services:
     name: nanobanana-png
     env: docker
     plan: free
-    repo: jhaanurag/nanobanana-png
+    repo: your-username/your-repo-name  # <-- CHANGE THIS to your GitHub repo path
     branch: main
     # With Docker env on Render, the Dockerfile handles the build and start.
     healthCheckPath: /healthz
