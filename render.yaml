@@ -1,0 +1,14 @@
+# Example render.yaml for reference - adjust values before use.
+services:
+  - type: web
+    name: nanobanana-png
+    env: docker
+    plan: free
+    repo: your-username/your-repo-name  # <-- CHANGE THIS to your GitHub repo path
+    branch: main
+    # With Docker env on Render, the Dockerfile handles the build and start.
+    healthCheckPath: /healthz
+    envVars:
+      - key: GEMINI_API_KEY
+        # do NOT commit secrets; set this at deploy time in Render UI or via CLI
+        sync: false
