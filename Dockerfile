@@ -17,8 +17,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY . /app
 
-# Expose a port (Render sets $PORT at runtime)
-EXPOSE 10000
-
+# Port is set dynamically at runtime via $PORT (Render sets $PORT)
 # Use uvicorn. Use shell form so $PORT expands at runtime.
 CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1
