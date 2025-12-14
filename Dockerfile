@@ -20,5 +20,5 @@ COPY . /app
 # Expose a port (Render sets $PORT at runtime)
 EXPOSE 10000
 
-# Use gunicorn + uvicorn worker. Use shell form so $PORT expands at runtime.
+# Use uvicorn. Use shell form so $PORT expands at runtime.
 CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1
