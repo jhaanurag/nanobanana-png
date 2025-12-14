@@ -31,6 +31,12 @@ async def hello():
     return {"message": "hello world"}
 
 
+@app.get('/healthz')
+async def healthz():
+    """Simple health check endpoint for Render or other services."""
+    return {"status": "ok"}
+
+
 @app.get('/')
 async def index():
     """Return the simple HTML page that fetches `/hello`.
