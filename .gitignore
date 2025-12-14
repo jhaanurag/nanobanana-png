@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+env/
+venv/
+.venv/
+
+# Packages
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*~
+
+# Mac OS
+.DS_Store
+
+# Pytest cache
+.pytest_cache/
+
+# python local env
+local.env

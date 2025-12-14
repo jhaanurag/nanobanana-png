@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nanobanana-png — hello</title>
+    <style>
+      body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; padding: 2rem; }
+      .container { max-width: 620px; margin: 0 auto; }
+      .message { font-size: 1.4rem; color: #0b4; }
+      .error { color: #c00; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>FastAPI /hello demo</h1>
+      <p id="status">Loading message…</p>
+      <pre id="json" style="display:none; background:#f8f8f8; padding:10px; border-radius:6px;"></pre>
+    </div>
+
+    <script>
+      async function fetchHello() {
+        const statusEl = document.getElementById('status');
+        const jsonEl = document.getElementById('json');
+        try {
+          const res = await fetch('/hello', { cache: 'no-store' });
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+          const data = await res.json();
+          statusEl.innerHTML = '';
+          jsonEl.style.display = 'block';
+          jsonEl.textContent = JSON.stringify(data, null, 2);
+          const m = document.createElement('div');
+          m.className = 'message';
+          m.textContent = data.message ?? 'no message';
+          statusEl.appendChild(m);
+        } catch (err) {
+          statusEl.className = 'error';
+          statusEl.textContent = 'Failed to fetch /hello: ' + err.message;
+          jsonEl.style.display = 'none';
+        }
+      }
+      window.addEventListener('DOMContentLoaded', fetchHello);
+    </script>
+  </body>
+</html>
